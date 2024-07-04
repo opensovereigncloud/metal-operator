@@ -61,7 +61,7 @@ func (r *ServerClaimReconciler) delete(ctx context.Context, log logr.Logger, cla
 	log.V(1).Info("Deleting server claim")
 
 	server := &metalv1alpha1.Server{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: claim.Spec.ServerRef.Name}, server); err != nil {
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: claim.Spec.ServerRef.Name}, server); err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, fmt.Errorf("failed to get server: %w", err)
 	}
 
@@ -72,14 +72,11 @@ func (r *ServerClaimReconciler) delete(ctx context.Context, log logr.Logger, cla
 	}
 
 	config := &metalv1alpha1.ServerBootConfiguration{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: claim.Namespace, Name: claim.Name}, config); err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: claim.Namespace, Name: claim.Name}, config); err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, err
 	}
 
-	if err := r.Delete(ctx, config); err != nil {
+	if err := r.Delete(ctx, config); err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, fmt.Errorf("failed to delete config: %w", err)
 	}
 	log.V(1).Info("Removed boot config")
@@ -238,7 +235,7 @@ func (r *ServerClaimReconciler) removeBootConfigRefFromServerAndPowerOff(ctx con
 	serverBase := server.DeepCopy()
 	server.Spec.BootConfigurationRef = nil
 	server.Spec.Power = metalv1alpha1.PowerOff
-	if err := r.Patch(ctx, server, client.MergeFrom(serverBase)); err != nil {
+	if err := r.Patch(ctx, server, client.MergeFrom(serverBase)); err != nil && apierrors.IsNotFound(err) {
 		return err
 	}
 	return nil
