@@ -160,11 +160,15 @@ func (r *ServerReconciler) reconcile(ctx context.Context, log logr.Logger, serve
 // Server state-machine:
 //
 // A Server goes through the following stages:
-// Initial -> Available -> Reserved -> Tainted -> Available ...
+// Initial -> Discovery -> Available -> Reserved -> Tainted -> Available ...
 //
 // Initial:
 // In the initial state we create a ServerBootConfiguration and an Ignition to start the Probe server on the
-// Server. This Probe server registers with the managers /registry/{uuid} endpoint it's address, so the reconciler can
+// Server. The Server is patched to the state Discovery.
+//
+// Discovery:
+// In the discovery state we expect the Server to come up with the Probe server running.
+// This Probe server registers with the managers /registry/{uuid} endpoint it's address, so the reconciler can
 // fetch the server details from this endpoint. Once completed the Server is patched to the state Available.
 //
 // Available:
@@ -184,22 +188,50 @@ func (r *ServerReconciler) reconcile(ctx context.Context, log logr.Logger, serve
 func (r *ServerReconciler) ensureServerStateTransition(ctx context.Context, log logr.Logger, server *metalv1alpha1.Server) (bool, error) {
 	switch server.Status.State {
 	case metalv1alpha1.ServerStateInitial:
+		serverBase := server.DeepCopy()
+		server.Spec.Power = metalv1alpha1.PowerOff
+		if err := r.Patch(ctx, server, client.MergeFrom(serverBase)); err != nil {
+			return false, fmt.Errorf("failed to update server power state: %w", err)
+		}
+		log.V(1).Info("Updated Server power state", "PowerState", metalv1alpha1.PowerOff)
+
+		if err := r.ensureServerPowerState(ctx, log, server); err != nil {
+			return false, fmt.Errorf("failed to ensure server power state: %w", err)
+		}
+		log.V(1).Info("Server state set to power off")
+
 		// apply boot configuration
 		if err := r.applyBootConfigurationAndIgnitionForDiscovery(ctx, log, server); err != nil {
 			return false, fmt.Errorf("failed to apply server boot configuration: %w", err)
 		}
 		log.V(1).Info("Applied Server boot configuration")
 
+		if err := r.pxeBootServer(ctx, log, server); err != nil {
+			return false, fmt.Errorf("failed to boot server: %w", err)
+		}
+		log.V(1).Info("Booted Server in PXE")
+
+		if modified, err := r.patchServerState(ctx, server, metalv1alpha1.ServerStateDiscovery); err != nil || modified {
+			return false, err
+		}
+	case metalv1alpha1.ServerStateDiscovery:
+		serverBase := server.DeepCopy()
+		server.Spec.Power = metalv1alpha1.PowerOn
+		if err := r.Patch(ctx, server, client.MergeFrom(serverBase)); err != nil {
+			return false, fmt.Errorf("failed to update server power state: %w", err)
+		}
+		log.V(1).Info("Updated Server power state", "PowerState", metalv1alpha1.PowerOn)
+
+		if err := r.ensureServerPowerState(ctx, log, server); err != nil {
+			return false, fmt.Errorf("failed to ensure server power state: %w", err)
+		}
+		log.V(1).Info("Server state set to power on")
+
 		if ready, err := r.serverBootConfigurationIsReady(ctx, server); err != nil || !ready {
 			log.V(1).Info("Server boot configuration is not ready. Retrying ...")
 			return true, err
 		}
 		log.V(1).Info("Server boot configuration is ready")
-
-		if err := r.pxeBootServer(ctx, log, server); err != nil {
-			return false, fmt.Errorf("failed to boot server: %w", err)
-		}
-		log.V(1).Info("Booted Server in PXE")
 
 		ready, err := r.extractServerDetailsFromRegistry(ctx, log, server)
 		if !ready && err == nil {
@@ -212,7 +244,7 @@ func (r *ServerReconciler) ensureServerStateTransition(ctx context.Context, log 
 		}
 		log.V(1).Info("Extracted Server details")
 
-		serverBase := server.DeepCopy()
+		serverBase = server.DeepCopy()
 		server.Spec.Power = metalv1alpha1.PowerOff
 		if err := r.Patch(ctx, server, client.MergeFrom(serverBase)); err != nil {
 			return false, fmt.Errorf("failed to update server power state: %w", err)
@@ -433,11 +465,6 @@ func (r *ServerReconciler) pxeBootServer(ctx context.Context, log logr.Logger, s
 	}
 	if err := bmcClient.SetPXEBootOnce(server.Spec.UUID); err != nil {
 		return fmt.Errorf("failed to set PXE boot one for server: %w", err)
-	}
-
-	// TODO: do a proper restart if Server is already in PowerOn state
-	if err := bmcClient.PowerOn(server.Spec.UUID); err != nil {
-		return fmt.Errorf("failed to power on server: %w", err)
 	}
 	return nil
 }
