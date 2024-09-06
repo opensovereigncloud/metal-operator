@@ -11,6 +11,9 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+GOARCH  := $(shell go env GOARCH)
+GOOS    := $(shell go env GOOS)
+
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
@@ -181,8 +184,12 @@ LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
+# curl retries
+CURL_RETRIES=3
+
 ## Tool Binaries
-KUBECTL ?= kubectl
+KUBECTL ?= $(LOCALBIN)/kubectl-$(KUBECTL_VERSION)
+KUBECTL_BIN ?= $(LOCALBIN)/kubectl
 KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
@@ -192,6 +199,7 @@ GEN_CRD_API_REFERENCE_DOCS ?= $(LOCALBIN)/gen-crd-api-reference-docs-$(GEN_CRD_A
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.3.0
+KUBECTL_VERSION ?= v1.29.4
 CONTROLLER_TOOLS_VERSION ?= v0.15.0
 ENVTEST_VERSION ?= latest
 GOLANGCI_LINT_VERSION ?= v1.60.1
@@ -202,6 +210,13 @@ GEN_CRD_API_REFERENCE_DOCS_VERSION ?= v0.3.0
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+
+.PHONY: kubectl
+kubectl: $(KUBECTL) ## Download kubectl locally if necessary.
+$(KUBECTL): $(LOCALBIN)
+	curl --retry $(CURL_RETRIES) -fsL https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/$(GOOS)/$(GOARCH)/kubectl -o $(KUBECTL)
+	ln -sf "$(KUBECTL)" "$(KUBECTL_BIN)"
+	chmod +x "$(KUBECTL_BIN)" "$(KUBECTL)"
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
@@ -241,3 +256,26 @@ GOBIN=$(LOCALBIN) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
+
+## --------------------------------------
+## Tilt / Kind
+## --------------------------------------
+
+KIND_CLUSTER_NAME ?= metal
+
+.PHONY: kind-create
+kind-create: $(KUBECTL) ## create metal kind cluster if needed
+	./scripts/kind-with-registry.sh
+
+.PHONY: kind-delete
+kind-delete: ## Destroys the "metal" kind cluster.
+	kind delete cluster --name=$(KIND_CLUSTER_NAME)
+	docker stop kind-registry && docker rm kind-registry
+
+.PHONY: tilt-up
+tilt-up: $(KUSTOMIZE) $(KUBECTL) kind-create startbmc ## start tilt and build kind cluster if needed
+	EXP_CLUSTER_RESOURCE_SET=true tilt up
+
+.PHONY: delete-cluster
+delete-cluster: delete-workload-cluster  ## Deletes the kind cluster "metal"
+	kind delete cluster --name=$(KIND_CLUSTER_NAME)
