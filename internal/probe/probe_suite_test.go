@@ -41,11 +41,4 @@ var _ = BeforeSuite(func() {
 		defer GinkgoRecover()
 		Expect(registryServer.Start(ctx)).To(Succeed(), "failed to start registry agent")
 	}()
-
-	// Initialize your probe server
-	probeAgent = probe.NewAgent(systemUUID, registryURL)
-	go func() {
-		defer GinkgoRecover()
-		Expect(probeAgent.Start(ctx)).To(Succeed(), "failed to start probe agent")
-	}()
 })
