@@ -74,7 +74,7 @@ var _ = BeforeSuite(func() {
 		// Note that you must have the required binaries setup under the bin directory to perform
 		// the tests directly. When we run make test it will be setup and used automatically.
 		BinaryAssetsDirectory: filepath.Join("..", "..", "bin", "k8s",
-			fmt.Sprintf("1.29.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
+			fmt.Sprintf("1.30.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
 
 		WebhookInstallOptions: envtest.WebhookInstallOptions{
 			Paths: []string{filepath.Join("..", "..", "config", "webhook")},
@@ -111,7 +111,7 @@ var _ = BeforeSuite(func() {
 			CertDir: webhookInstallOptions.LocalServingCertDir,
 		}),
 		LeaderElection: false,
-		Metrics:        metricsserver.Options{BindAddress: "0"},
+		Metrics:        metricsserver.Options{BindAddress: ":8081"},
 	})
 	Expect(err).NotTo(HaveOccurred())
 
@@ -122,8 +122,7 @@ var _ = BeforeSuite(func() {
 
 	go func() {
 		defer GinkgoRecover()
-		err = mgr.Start(ctx)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(mgr.Start(ctx)).NotTo(HaveOccurred())
 	}()
 
 	// wait for the webhook server to get ready
