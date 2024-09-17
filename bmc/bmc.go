@@ -13,8 +13,11 @@ type BMC interface {
 	// PowerOn powers on the system.
 	PowerOn(systemUUID string) error
 
-	// PowerOff powers off the system.
+	// PowerOff gracefully shuts down the system.
 	PowerOff(systemUUID string) error
+
+	// PushPowerOff powers off the system.
+	PushPowerOff(systemUUID string) error
 
 	// Reset performs a reset on the system.
 	Reset(systemUUID string, resetType redfish.ResetType) error

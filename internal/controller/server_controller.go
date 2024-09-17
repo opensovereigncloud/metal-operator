@@ -671,11 +671,20 @@ func (r *ServerReconciler) ensureServerPowerState(ctx context.Context, log logr.
 			return fmt.Errorf("failed to wait for server power on server: %w", err)
 		}
 	case powerOpOff:
-		if err := bmcClient.PowerOff(server.Spec.UUID); err != nil {
+		powerOffType := bmcClient.PowerOff
+
+		if err := powerOffType(server.Spec.UUID); err != nil {
 			return fmt.Errorf("failed to power off server: %w", err)
 		}
 		if err := r.waitForServerPowerState(ctx, log, bmcClient, server, redfish.OffPowerState); err != nil {
-			return fmt.Errorf("failed to wait for server power off server: %w", err)
+			log.V(1).Info("failed to wait for server graceful shutdown, retrying with power off")
+			powerOffType = bmcClient.PushPowerOff
+			if err := powerOffType(server.Spec.UUID); err != nil {
+				return fmt.Errorf("failed to power off server: %w", err)
+			}
+			if err := r.waitForServerPowerState(ctx, log, bmcClient, server, redfish.OffPowerState); err != nil {
+				return fmt.Errorf("failed to wait for server power off: %w", err)
+			}
 		}
 	}
 	log.V(1).Info("Ensured server power state", "PowerState", server.Spec.Power)
