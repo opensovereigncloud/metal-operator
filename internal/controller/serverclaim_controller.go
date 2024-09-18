@@ -6,6 +6,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -32,7 +33,8 @@ const (
 // ServerClaimReconciler reconciles a ServerClaim object
 type ServerClaimReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme         *runtime.Scheme
+	ResyncInterval time.Duration
 }
 
 // +kubebuilder:rbac:groups=metal.ironcore.dev,resources=serverclaims,verbs=get;list;watch;create;update;patch;delete
@@ -151,7 +153,7 @@ func (r *ServerClaimReconciler) reconcile(ctx context.Context, log logr.Logger, 
 	}
 	if server == nil {
 		log.V(1).Info("No server found for claim")
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
 	}
 
 	if modified, err := r.patchServerRef(ctx, claim, server); err != nil || modified {
@@ -180,7 +182,7 @@ func (r *ServerClaimReconciler) reconcile(ctx context.Context, log logr.Logger, 
 	log.V(1).Info("Ensured PowerState for Server", "Server", server.Name)
 
 	log.V(1).Info("Reconciled server claim")
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: r.ResyncInterval}, nil
 }
 
 func (r *ServerClaimReconciler) ensureObjectRefForServer(ctx context.Context, log logr.Logger, claim *metalv1alpha1.ServerClaim, server *metalv1alpha1.Server) (bool, error) {

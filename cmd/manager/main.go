@@ -61,6 +61,7 @@ func main() {
 	var enforceFirstBoot bool
 	var enforcePowerOff bool
 	var serverResyncInterval time.Duration
+	var claimResyncInterval time.Duration
 	var powerPollingInterval time.Duration
 	var powerPollingTimeout time.Duration
 
@@ -69,8 +70,10 @@ func main() {
 	flag.DurationVar(&powerPollingTimeout, "power-polling-timeout", 2*time.Minute, "Timeout for polling power state")
 	flag.DurationVar(&registryResyncInterval, "registry-resync-interval", 10*time.Second,
 		"Defines the interval at which the registry is polled for new server information.")
-	flag.DurationVar(&serverResyncInterval, "server-resync-interval", 30*time.Second,
+	flag.DurationVar(&serverResyncInterval, "server-resync-interval", 2*time.Minute,
 		"Defines the interval at which the server is polled.")
+	flag.DurationVar(&claimResyncInterval, "claim-resync-interval", 2*time.Minute,
+		"Defines the interval at which the server claim is polled.")
 	flag.StringVar(&registryURL, "registry-url", "", "The URL of the registry.")
 	flag.StringVar(&registryProtocol, "registry-protocol", "http", "The protocol to use for the registry.")
 	flag.IntVar(&registryPort, "registry-port", 10000, "The port to use for the registry.")
@@ -230,8 +233,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.ServerClaimReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		ResyncInterval: claimResyncInterval,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServerClaim")
 		os.Exit(1)
