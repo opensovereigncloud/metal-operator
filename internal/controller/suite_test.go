@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"testing"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -123,12 +126,21 @@ func SetupTest() *corev1.Namespace {
 		Expect(k8sClient.Create(ctx, ns)).To(Succeed(), "failed to create test namespace")
 		DeferCleanup(k8sClient.Delete, ns)
 
+		webhookInstallOptions := &testEnv.WebhookInstallOptions
 		k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 			Scheme: scheme.Scheme,
 			Controller: config.Controller{
 				// need to skip unique controller name validation
 				// since all tests need a dedicated controller
 				SkipNameValidation: ptr.To(true),
+			},
+			WebhookServer: webhook.NewServer(webhook.Options{
+				Host:    webhookInstallOptions.LocalServingHost,
+				Port:    8082,
+				CertDir: webhookInstallOptions.LocalServingCertDir,
+			}),
+			Metrics: server.Options{
+				BindAddress: ":8083",
 			},
 		})
 		Expect(err).ToNot(HaveOccurred())
