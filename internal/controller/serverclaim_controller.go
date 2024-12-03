@@ -319,7 +319,7 @@ func (r *ServerClaimReconciler) claimServer(ctx context.Context, log logr.Logger
 	case claim.Spec.ServerSelector != nil:
 		server, err = r.claimServerBySelector(ctx, log, claim)
 	default:
-		server, err = r.claimFirstBestServer(ctx, log)
+		server, err = r.claimFirstBestServer(ctx, log, claim)
 	}
 	if err != nil {
 		return nil, err
@@ -399,12 +399,31 @@ func (r *ServerClaimReconciler) claimServerBySelector(ctx context.Context, log l
 	return server, nil
 }
 
-func (r *ServerClaimReconciler) claimFirstBestServer(ctx context.Context, log logr.Logger) (*metalv1alpha1.Server, error) {
-	log.V(1).Info("Trying to claim first best server")
+func (r *ServerClaimReconciler) checkForPrevUsedServer(log logr.Logger, servers []metalv1alpha1.Server, claim *metalv1alpha1.ServerClaim) *metalv1alpha1.Server {
+	log.V(1).Info("Check for previous claimed server")
+	var server *metalv1alpha1.Server
+	for _, s := range servers {
+		if ref := s.Spec.ServerClaimRef; ref != nil {
+			if ref.UID == claim.UID && ref.Name == claim.Name && ref.Namespace == claim.Namespace {
+				server = s.DeepCopy()
+				break
+			}
+		}
+	}
+	return server
+}
+
+func (r *ServerClaimReconciler) claimFirstBestServer(ctx context.Context, log logr.Logger, claim *metalv1alpha1.ServerClaim) (*metalv1alpha1.Server, error) {
 	serverList := &metalv1alpha1.ServerList{}
 	if err := r.List(ctx, serverList); err != nil {
 		return nil, err
 	}
+
+	if server := r.checkForPrevUsedServer(log, serverList.Items, claim); server != nil {
+		return server, nil
+	}
+
+	log.V(1).Info("Trying to claim first best server")
 	var server *metalv1alpha1.Server
 	for _, s := range serverList.Items {
 		if s.Spec.ServerClaimRef != nil {
