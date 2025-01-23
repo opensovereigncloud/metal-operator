@@ -162,6 +162,7 @@ func (r *BMCReconciler) discoverServers(ctx context.Context, log logr.Logger, bm
 	for i, s := range servers {
 		server := &metalv1alpha1.Server{}
 		server.Name = bmcutils.GetServerNameFromBMCandIndex(i, bmcObj)
+		server.Labels = bmcObj.Labels
 
 		opResult, err := controllerutil.CreateOrPatch(ctx, r.Client, server, func() error {
 			server.Spec.UUID = strings.ToLower(s.UUID)
