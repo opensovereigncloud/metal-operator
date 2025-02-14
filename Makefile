@@ -71,8 +71,25 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest startbmc ## Run tests.
+test: manifests generate fmt vet setup-envtest startbmc ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+
+# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
+# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
+# Prometheus and CertManager are installed by default; skip with:
+# - PROMETHEUS_INSTALL_SKIP=true
+# - CERT_MANAGER_INSTALL_SKIP=true
+.PHONY: test-e2e
+test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+	@command -v kind >/dev/null 2>&1 || { \
+		echo "Kind is not installed. Please install Kind manually."; \
+		exit 1; \
+	}
+	@kind get clusters | grep -q 'kind' || { \
+		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
+		exit 1; \
+	}
+	go test ./test/e2e/ -v -ginkgo.v
 
 .PHONY: startbmc
 startbmc: ## Start BMC emulator
@@ -215,17 +232,19 @@ KUBECTL ?= $(LOCALBIN)/kubectl-$(ENVTEST_K8S_VERSION)
 KUBECTL_BIN ?= $(LOCALBIN)/kubectl
 KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
-ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
-GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOIMPORTS ?= $(LOCALBIN)/goimports-$(GOIMPORTS_VERSION)
 GEN_CRD_API_REFERENCE_DOCS ?= $(LOCALBIN)/gen-crd-api-reference-docs-$(GEN_CRD_API_REFERENCE_DOCS_VERSION)
 ADDLICENSE ?= $(LOCALBIN)/addlicense-$(ADDLICENSE_VERSION)
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.3.0
+KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.17.1
-ENVTEST_VERSION ?= latest
-GOLANGCI_LINT_VERSION ?= v1.63.0
+#ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
+ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
+#ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
+ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
+GOLANGCI_LINT_VERSION ?= v1.64
 GOIMPORTS_VERSION ?= v0.29.0
 GEN_CRD_API_REFERENCE_DOCS_VERSION ?= v0.3.0
 ADDLICENSE_VERSION ?= v1.1.1
@@ -251,6 +270,14 @@ $(KUBECTL): $(LOCALBIN)
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
 $(CONTROLLER_GEN): $(LOCALBIN)
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+
+.PHONY: setup-envtest
+setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.
+	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
+	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path || { \
+		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
+		exit 1; \
+	}
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
