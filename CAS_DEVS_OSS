@@ -1,0 +1,13 @@
+team: iaas
+assignees:
+  - "artem.bortnikov"
+  - "simon.bischoff1"
+cveLabels:
+  - "type::3-cve"
+  - "stream::infra-development"
+  - "Component::Metal"
+  - "why::Security"
+  - "squad::onMetal User API"
+dueDays: 13
+cve:
+  - repository: osc/upstream/ironcore-dev/metal-operator
